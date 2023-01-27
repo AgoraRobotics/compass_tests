@@ -13,9 +13,17 @@ from std_msgs.msg import String, Float32
 from sensor_msgs.msg import Imu, MagneticField
 from tf_transformations import euler_from_quaternion
 
+TIMER_FREQ = 20
+dt = 1 / TIMER_FREQ
+
+MAX_ACCEL = 0.1
+
 
 def constrain(val, min_val, max_val):
     return min(max_val, max(min_val, val))
+
+def sign(a):
+    return 1 if a > 0 else -1
 
 class MinimalSubscriber(Node):
 
@@ -27,7 +35,8 @@ class MinimalSubscriber(Node):
         #     self.mag_callback,
         #     10)
 
-        self.target_angle = Angle(35, 'deg')     # 30
+        self.target_angle = Angle(35, 'deg')     # 30s
+        self.ang_vel = 0
         self.pid_angle = PID(1.5, 0.0, 0.0, setpoint=self.target_angle.convert('rad'))
         self.pid_line = PID(1.5, 0.0, 0.0, setpoint=0)
 
@@ -166,7 +175,7 @@ class MinimalSubscriber(Node):
         if self.start_time is None:
             self.start_time = time.monotonic()
         else:
-            if time.monotonic() - self.start_time > 15:
+            if time.monotonic() - self.start_time > 10:
                 self.start_time = time.monotonic()
                 self.target_angle += -90
                 self.pid_angle.setpoint = self.target_angle.convert('rad')
@@ -176,10 +185,15 @@ class MinimalSubscriber(Node):
 
         heading = odom_heading_abs
         # heading = self.heading
+        target_ang_vel = constrain(self.pid_angle(heading.convert('rad')), -0.5, 0.5)
+        if abs(target_ang_vel) > abs(self.ang_vel):
+            self.ang_vel += sign(target_ang_vel) * min(MAX_ACCEL*dt, abs(target_ang_vel-self.ang_vel))
+        else:
+            self.ang_vel = target_ang_vel
 
         print(f"{self.heading.convert('deg')} - {odom_heading_abs.convert('deg')} = {drift.convert('deg'):.2f} | {float(heading.convert('deg')):.2f} -> \t{float(self.target_angle):.2f}")
         # self.vel_msg.angular.z = constrain(kP * float(self.target_angle - heading), -0.3, 0.3)
-        self.vel_msg.angular.z = constrain(self.pid_angle(heading.convert('rad')), -0.2, 0.2)
+        self.vel_msg.angular.z = self.ang_vel
         self.vel_pub.publish(self.vel_msg)
 
 ##########  LINE
