@@ -28,7 +28,8 @@ class MinimalSubscriber(Node):
         #     10)
 
         self.target_angle = Angle(35, 'deg')     # 30
-        self.pid = PID(1.5, 0.0, 0.0, setpoint=self.target_angle.convert('rad'))
+        self.pid_angle = PID(1.5, 0.0, 0.0, setpoint=self.target_angle.convert('rad'))
+        self.pid_line = PID(1.5, 0.0, 0.0, setpoint=0)
 
         def pi_clip(angle):
             if angle > 0:
@@ -38,7 +39,7 @@ class MinimalSubscriber(Node):
                 if angle < -math.pi:
                     return angle + 2*math.pi
             return angle
-        self.pid.error_map = pi_clip
+        self.pid_angle.error_map = pi_clip
 
         self.heading = None
         # self.imu_subscription = self.create_subscription(
@@ -76,10 +77,13 @@ class MinimalSubscriber(Node):
         self.vel_msg.linear.z = 0.0
         self.vel_msg.angular.x = 0.0
         self.vel_msg.angular.y = 0.0
+        self.vel_msg.angular.z = 0.0
 
         self.turning = False
         self.start_time = None
+        self.start_position = None
         self.timer = self.create_timer(0.05, self.timer_callback)
+        # self.timer = self.create_timer(0.05, self.timer_callback_line)
         # self.timer = self.create_timer(0.2, self.log_callback)
 
     # def mag_callback(self, msg):
@@ -156,17 +160,16 @@ class MinimalSubscriber(Node):
 
         # if self.turning:
         #     progress_angle = odom_heading_abs - self.start_angle
-#########
+
+######### CIRCLE
 
         if self.start_time is None:
             self.start_time = time.monotonic()
         else:
-            if time.monotonic() - self.start_time > 10:
+            if time.monotonic() - self.start_time > 15:
                 self.start_time = time.monotonic()
-                self.target_angle += 90
-                self.pid.setpoint = self.target_angle.convert('rad')
-                print(type(self.pid.setpoint))
-                self.vel_msg.linear.x = 0.0
+                self.target_angle += -90
+                self.pid_angle.setpoint = self.target_angle.convert('rad')
             elif time.monotonic() - self.start_time > 1:
                 pass
                 # self.vel_msg.linear.x = 0.2
@@ -176,8 +179,23 @@ class MinimalSubscriber(Node):
 
         print(f"{self.heading.convert('deg')} - {odom_heading_abs.convert('deg')} = {drift.convert('deg'):.2f} | {float(heading.convert('deg')):.2f} -> \t{float(self.target_angle):.2f}")
         # self.vel_msg.angular.z = constrain(kP * float(self.target_angle - heading), -0.3, 0.3)
-        self.vel_msg.angular.z = constrain(self.pid(heading.convert('rad')), -0.3, 0.3)
+        self.vel_msg.angular.z = constrain(self.pid_angle(heading.convert('rad')), -0.2, 0.2)
         self.vel_pub.publish(self.vel_msg)
+
+##########  LINE
+
+    def timer_callback_line(self):
+        if self.start_position is None:
+            self.start_time = time.monotonic()
+            self.start_position = self.position
+            self.vel_msg.linear.x = 0.1
+            self.vel_pub.publish(self.vel_msg)
+        else:
+            if time.monotonic() - self.start_time > 10:
+                # self.pid_angle.setpoint = self.target_angle.convert('rad')
+                self.vel_msg.linear.x = 0.0
+                self.vel_pub.publish(self.vel_msg)
+
 
     # def log_callback(self):
     #     if not hasattr(self, 'mag_field'):
