@@ -180,8 +180,8 @@ class MinimalSubscriber(Node):
                 self.target_angle += -90
                 self.pid_angle.setpoint = self.target_angle.convert('rad')
             elif time.monotonic() - self.start_time > 1:
-                pass
                 # self.vel_msg.linear.x = 0.2
+                pass
 
         heading = odom_heading_abs
         # heading = self.heading
@@ -191,7 +191,8 @@ class MinimalSubscriber(Node):
         else:
             self.ang_vel = target_ang_vel
 
-        print(f"{self.heading.convert('deg')} - {odom_heading_abs.convert('deg')} = {drift.convert('deg'):.2f} | {float(heading.convert('deg')):.2f} -> \t{float(self.target_angle):.2f}")
+        print(f"{self.heading.convert('deg')} - {odom_heading_abs.convert('deg')} = {drift.convert('deg'):.2f} " 
+              f"| {float(heading.convert('deg')):.2f} ({heading.mod}) -> \t{float(self.target_angle):.2f}")
         # self.vel_msg.angular.z = constrain(kP * float(self.target_angle - heading), -0.3, 0.3)
         self.vel_msg.angular.z = self.ang_vel
         self.vel_pub.publish(self.vel_msg)
