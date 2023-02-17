@@ -12,35 +12,13 @@ from tf2_ros.static_transform_broadcaster import StaticTransformBroadcaster
 from tf2_ros import TransformException
 from tf2_ros.buffer import Buffer
 from tf2_ros.transform_listener import TransformListener
-# from tf_transformations import quaternion_from_euler
+from tf_transformations import quaternion_from_euler
 
 VIVE_WORLD = 'libsurvive_world'
 MAP_FRAME = 'map'
 TRACKER = 'LHR-28AFC235'
 CALIB_DIST = 0.5    # move at least 1m to align frames
 
-def quaternion_from_euler(ai, aj, ak):
-    ai /= 2.0
-    aj /= 2.0
-    ak /= 2.0
-    ci = math.cos(ai)
-    si = math.sin(ai)
-    cj = math.cos(aj)
-    sj = math.sin(aj)
-    ck = math.cos(ak)
-    sk = math.sin(ak)
-    cc = ci*ck
-    cs = ci*sk
-    sc = si*ck
-    ss = si*sk
-
-    q = np.empty((4, ))
-    q[0] = cj*sc - sj*cs
-    q[1] = cj*ss + sj*cc
-    q[2] = cj*cs - sj*sc
-    q[3] = cj*cc + sj*ss
-
-    return q
 
 def vect3_dist(p1, p2):
     return math.dist((p1.x, p1.y), (p2.x, p2.y))
