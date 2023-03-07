@@ -35,7 +35,7 @@ class MinimalSubscriber(Node):
         #     self.mag_callback,
         #     10)
 
-        self.target_angle = Angle(35, 'deg')     # 30s
+        self.target_angle = Angle(0, 'deg')     # 30s
         self.ang_vel = 0
         self.pid_angle = PID(1.5, 0.0, 0.0, setpoint=self.target_angle.convert('rad'))
         self.pid_line = PID(1.5, 0.0, 0.0, setpoint=0)
@@ -91,9 +91,10 @@ class MinimalSubscriber(Node):
         self.turning = False
         self.start_time = None
         self.start_position = None
-        self.timer = self.create_timer(0.05, self.timer_callback)
+        self.timer = self.create_timer(0.05, self.timer_callback_rotate)
+        # self.timer = self.create_timer(0.05, self.timer_callback_square)
         # self.timer = self.create_timer(0.05, self.timer_callback_line)
-        # self.timer = self.create_timer(0.2, self.log_callback)
+        self.timer = self.create_timer(0.2, self.log_callback)
 
     # def mag_callback(self, msg):
     #     if not self.calib:
@@ -132,7 +133,8 @@ class MinimalSubscriber(Node):
         self.odom_count += 1
         # print("OH", self.odom_heading.convert('deg'))
 
-    def timer_callback(self):
+
+    def timer_callback_rotate(self):
         if self.odom_heading is None:
             print('no ODOM heading...')
             return
@@ -149,10 +151,13 @@ class MinimalSubscriber(Node):
         if self.diff_compass_odom is not None:
             odom_heading_abs = self.odom_heading + self.diff_compass_odom
             drift = self.heading - odom_heading_abs
-            print('computed', odom_heading_abs)
+
+            drift = drift.convert('deg')
+            if drift > 180:
+                drift = drift - 360
+            # print('computed', odom_heading_abs)
         else:
             return  # do not continue until we have valid heading
-
 
         # print(f'{self.heading:.2f} \t{self.odom_heading:.2f} \t{odom_heading_abs:.2f} \t', self.odom_count * 10, 'Hz')
         # self.last_odom_count = self.odom_count
@@ -175,12 +180,64 @@ class MinimalSubscriber(Node):
         if self.start_time is None:
             self.start_time = time.monotonic()
         else:
-            if time.monotonic() - self.start_time > 10:
+            if time.monotonic() - self.start_time > 8:
                 self.start_time = time.monotonic()
                 self.target_angle += -90
                 self.pid_angle.setpoint = self.target_angle.convert('rad')
-            elif time.monotonic() - self.start_time > 1:
-                # self.vel_msg.linear.x = 0.2
+                self.vel_msg.linear.x = 0.0
+
+        heading = odom_heading_abs
+        # heading = self.heading
+        target_ang_vel = constrain(self.pid_angle(heading.convert('rad')), -0.5, 0.5)
+        if abs(target_ang_vel) > abs(self.ang_vel):
+            self.ang_vel += sign(target_ang_vel) * min(MAX_ACCEL*dt, abs(target_ang_vel-self.ang_vel))
+        else:
+            self.ang_vel = target_ang_vel
+
+        print(f"{self.heading.convert('deg')} - {odom_heading_abs.convert('deg')} = {drift:.2f} " 
+              f"| {float(heading.convert('deg')):.2f} ({heading.mod}) -> \t{float(self.target_angle):.2f}")
+        # self.vel_msg.angular.z = constrain(kP * float(self.target_angle - heading), -0.3, 0.3)
+        self.vel_msg.angular.z = self.ang_vel
+        self.vel_pub.publish(self.vel_msg)
+
+
+
+    def timer_callback_square(self):
+        if self.odom_heading is None:
+            print('no ODOM heading...')
+            return
+
+        if self.heading is None:
+            print('no compass heading...')
+            return
+
+        if (self.diff_compass_odom is None and self.heading and self.odom_heading):
+            self.diff_compass_odom = self.heading - self.odom_heading
+            print(f"SAVE RAD {self.diff_compass_odom.measure:.2f} = {self.heading.measure:.2f} - {self.odom_heading.measure:.2f}")
+            print(f"SAVE DEG {self.diff_compass_odom.convert('deg'):.2f} = {self.heading.convert('deg'):.2f} - {self.odom_heading.convert('deg'):.2f}")
+
+        if self.diff_compass_odom is not None:
+            odom_heading_abs = self.odom_heading + self.diff_compass_odom
+            drift = self.heading - odom_heading_abs
+            # print('computed', odom_heading_abs)
+        else:
+            return  # do not continue until we have valid heading
+
+######### SQUARE
+
+        if self.start_time is None:
+            self.start_time = time.monotonic()
+        else:
+            if time.monotonic() - self.start_time > 13:
+                self.start_time = time.monotonic()
+                self.target_angle += -90
+                self.pid_angle.setpoint = self.target_angle.convert('rad')
+            elif time.monotonic() - self.start_time > 12:
+                self.vel_msg.linear.x = constrain(self.vel_msg.linear.x - 0.02, 0.0, 0.3)
+                print('--', self.vel_msg.linear.x)
+            elif time.monotonic() - self.start_time > 7:
+                self.vel_msg.linear.x = constrain(self.vel_msg.linear.x + 0.02, 0.0, 0.3)
+                print('++', self.vel_msg.linear.x)
                 pass
 
         heading = odom_heading_abs
@@ -191,13 +248,13 @@ class MinimalSubscriber(Node):
         else:
             self.ang_vel = target_ang_vel
 
-        print(f"{self.heading.convert('deg')} - {odom_heading_abs.convert('deg')} = {drift.convert('deg'):.2f} " 
-              f"| {float(heading.convert('deg')):.2f} ({heading.mod}) -> \t{float(self.target_angle):.2f}")
+        # print(f"{self.heading.convert('deg')} - {odom_heading_abs.convert('deg')} = {drift.convert('deg'):.2f} " 
+        #       f"| {float(heading.convert('deg')):.2f} ({heading.mod}) -> \t{float(self.target_angle):.2f}")
         # self.vel_msg.angular.z = constrain(kP * float(self.target_angle - heading), -0.3, 0.3)
         self.vel_msg.angular.z = self.ang_vel
         self.vel_pub.publish(self.vel_msg)
 
-##########  LINE
+##########  LINE, drive straigth
 
     def timer_callback_line(self):
         if self.start_position is None:
@@ -211,15 +268,16 @@ class MinimalSubscriber(Node):
                 self.vel_msg.linear.x = 0.0
                 self.vel_pub.publish(self.vel_msg)
 
+########### logging
 
-    # def log_callback(self):
-    #     if not hasattr(self, 'mag_field'):
-    #         return
-    #     if not hasattr(self, 'print_header'):
-    #         print('x,y,z,ow,ox,oy,oz,mx,my,mz')
-    #         self.print_header = True
-    #     p, o, m = self.position, self.orientation, self.mag_field
-    #     print(','.join(str(e) for e in [p.x, p.y, p.z, o.w, o.x, o.y, o.z, m.x, m.y, m.z]))
+    def log_callback(self):
+        if not hasattr(self, 'mag_field'):
+            return
+        if not hasattr(self, 'print_header'):
+            print('x,y,z,ow,ox,oy,oz,mx,my,mz')
+            self.print_header = True
+        p, o, m = self.position, self.orientation, self.mag_field
+        print(','.join(str(e) for e in [p.x, p.y, p.z, o.w, o.x, o.y, o.z, m.x, m.y, m.z]))
 
 
 def main(args=None):
