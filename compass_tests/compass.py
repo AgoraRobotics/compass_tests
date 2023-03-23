@@ -16,7 +16,8 @@ from tf_transformations import euler_from_quaternion
 TIMER_FREQ = 20
 dt = 1 / TIMER_FREQ
 
-MAX_ACCEL = 0.1
+MAX_ACCEL = 0.01
+MAX_ANG_VEL = 0.3
 
 
 def constrain(val, min_val, max_val):
@@ -91,7 +92,7 @@ class MinimalSubscriber(Node):
         self.turning = False
         self.start_time = None
         self.start_position = None
-        self.timer = self.create_timer(0.05, self.timer_callback_rotate)
+        self.timer = self.create_timer(0.05, self.timer_callback_rotate_360)
         # self.timer = self.create_timer(0.05, self.timer_callback_square)
         # self.timer = self.create_timer(0.05, self.timer_callback_line)
         self.timer = self.create_timer(0.2, self.log_callback)
@@ -133,6 +134,73 @@ class MinimalSubscriber(Node):
         self.odom_count += 1
         # print("OH", self.odom_heading.convert('deg'))
 
+### ROTATE 360 ###
+
+    def timer_callback_rotate_360(self):
+        if self.odom_heading is None:
+            print('no ODOM heading...')
+            return
+
+        if self.heading is None:
+            print('no compass heading...')
+            return
+
+        IDLE, STARTED, HALF, DONE = range(4)
+        if not hasattr(self, 'state'):
+            # save odom
+            self.state = IDLE
+        print('STATE', self.state)
+
+        if self.state is IDLE:
+            self.state = STARTED
+            self.vel_msg.linear.x = 0.0
+            self.ang_vel = 0.0
+            self.start_heading = self.heading
+            self.start_odom = self.odom_heading
+            self.last_progress = 0
+            # TODO: clear wheel_distance, compass calib
+
+        elif self.state is STARTED:
+            self.ang_vel = constrain(self.ang_vel - MAX_ACCEL, -MAX_ANG_VEL, MAX_ANG_VEL)
+
+            progress = self.heading - self.start_heading
+            print('progress', progress)
+            if abs(progress) > abs(self.last_progress):
+                self.last_progress = progress
+            elif abs(progress) < abs(self.last_progress) - math.pi/6:    # 30 deg past half
+                self.state = HALF
+                self.pid_angle.setpoint = self.start_heading.convert('rad')
+
+        elif self.state is HALF:
+            target_ang_vel = constrain(self.pid_angle(self.heading.convert('rad')), -MAX_ANG_VEL, MAX_ANG_VEL)
+            if abs(target_ang_vel) > abs(self.ang_vel):
+                self.ang_vel += sign(target_ang_vel) * min(MAX_ACCEL*dt, abs(target_ang_vel-self.ang_vel))
+            else:
+                self.ang_vel = target_ang_vel
+
+            if abs(self.heading - self.start_heading) < Angle('0.1', 'deg').convert('rad'):
+                self.ang_vel = 0.0
+                self.state = DONE
+
+        elif self.state is DONE:
+            self.ang_vel = 0.0
+            print('odom', self.start_odom.convert('deg'), '->', self.odom_heading.convert('deg'))
+            print('odom correction', (2*math.pi - float(self.odom_heading-self.start_odom))/(math.pi*2))
+            exit()
+
+            self.state = DONE + 1
+                
+        # heading = odom_heading_abs
+
+        # print(f"{self.heading.convert('deg')} - {odom_heading_abs.convert('deg')} = {drift:.2f} " 
+        #       f"| {float(heading.convert('deg')):.2f} ({heading.mod}) -> \t{float(self.target_angle):.2f}")
+        # self.vel_msg.angular.z = constrain(kP * float(self.target_angle - heading), -0.3, 0.3)
+
+        self.vel_msg.angular.z = self.ang_vel
+        self.vel_pub.publish(self.vel_msg)
+        
+        
+######### CIRCLE
 
     def timer_callback_rotate(self):
         if self.odom_heading is None:
@@ -159,24 +227,6 @@ class MinimalSubscriber(Node):
         else:
             return  # do not continue until we have valid heading
 
-        # print(f'{self.heading:.2f} \t{self.odom_heading:.2f} \t{odom_heading_abs:.2f} \t', self.odom_count * 10, 'Hz')
-        # self.last_odom_count = self.odom_count
-
-        # turn_speed = -1.0
-        # if not self.turning:
-        #     if time.monotonic() > self.finish_time + 3:
-        #         print("turning...")
-        #         self.start_angle = odom_heading_abs
-        #         # self.start_time = time.monotonic()
-        #         self.vel_msg.angular.z = turn_speed
-        #         self.vel_pub.publish(self.vel_msg)
-        #         self.turning = True
-
-        # if self.turning:
-        #     progress_angle = odom_heading_abs - self.start_angle
-
-######### CIRCLE
-
         if self.start_time is None:
             self.start_time = time.monotonic()
         else:
@@ -200,7 +250,7 @@ class MinimalSubscriber(Node):
         self.vel_msg.angular.z = self.ang_vel
         self.vel_pub.publish(self.vel_msg)
 
-
+######### SQUARE
 
     def timer_callback_square(self):
         if self.odom_heading is None:
@@ -222,8 +272,6 @@ class MinimalSubscriber(Node):
             # print('computed', odom_heading_abs)
         else:
             return  # do not continue until we have valid heading
-
-######### SQUARE
 
         if self.start_time is None:
             self.start_time = time.monotonic()
