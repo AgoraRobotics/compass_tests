@@ -20,7 +20,8 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'compass = compass_tests.compass:main',
+            'rotate = compass_tests.compass:main_rotate',
+            'square = compass_tests.compass:main_square',
             'vive_frame = compass_tests.vive_frame_sync:main'
         ],
     },

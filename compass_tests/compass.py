@@ -28,7 +28,7 @@ def sign(a):
 
 class MinimalSubscriber(Node):
 
-    def __init__(self):
+    def __init__(self, timer_callback_name):
         super().__init__('minimal_subscriber')
         # self.mag_subscription = self.create_subscription(
         #     MagneticField,
@@ -92,7 +92,9 @@ class MinimalSubscriber(Node):
         self.turning = False
         self.start_time = None
         self.start_position = None
-        self.timer = self.create_timer(0.05, self.timer_callback_rotate_360)
+        timer_callback = getattr(self, timer_callback_name)
+        self.timer = self.create_timer(0.05, timer_callback)
+        # self.timer = self.create_timer(0.05, self.timer_callback_rotate_360)
         # self.timer = self.create_timer(0.05, self.timer_callback_square)
         # self.timer = self.create_timer(0.05, self.timer_callback_line)
         self.timer = self.create_timer(0.2, self.log_callback)
@@ -202,7 +204,7 @@ class MinimalSubscriber(Node):
         
 ######### CIRCLE
 
-    def timer_callback_rotate(self):
+    def timer_callback_rotate_in_steps(self):
         if self.odom_heading is None:
             print('no ODOM heading...')
             return
@@ -329,17 +331,24 @@ class MinimalSubscriber(Node):
 
 
 def main(args=None):
-    rclpy.init(args=args)
+    callback = args.pop('callback', 'timer_callback_rotate_360')
+    rclpy.init(args=None)
 
-    minimal_subscriber = MinimalSubscriber()
+    compass_test = MinimalSubscriber(callback)
 
-    rclpy.spin(minimal_subscriber)
+    rclpy.spin(compass_test)
 
     # Destroy the node explicitly
     # (optional - otherwise it will be done automatically
     # when the garbage collector destroys the node object)
-    minimal_subscriber.destroy_node()
+    compass_test.destroy_node()
     rclpy.shutdown()
+
+def main_rotate():
+    main({'callback': 'timer_callback_rotate_360'})
+
+def main_square():
+    main({'callback': 'timer_callback_square'})
 
 if __name__ == '__main__':
     main()
