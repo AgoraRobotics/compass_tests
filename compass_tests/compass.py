@@ -16,7 +16,7 @@ from tf_transformations import euler_from_quaternion
 TIMER_FREQ = 20
 dt = 1 / TIMER_FREQ
 
-MAX_ACCEL = 0.01
+MAX_ACCEL = 0.05
 MAX_ANG_VEL = 0.3
 
 
@@ -36,10 +36,16 @@ class MinimalSubscriber(Node):
         #     self.mag_callback,
         #     10)
 
-        self.target_angle = Angle(0, 'deg')     # 30s
+        self.target_angle = Angle(180, 'deg')     # 30s
         self.ang_vel = 0
-        self.pid_angle = PID(1.5, 0.0, 0.0, setpoint=self.target_angle.convert('rad'))
+
+        self.pid_angle = PID(2.5, 0.0, 0.25, setpoint=self.target_angle.convert('rad'))
+        self.pid_angle.sample_time = dt
+        # self.pid_angle.differential_on_measurement = False
+        self.pid_angle.output_limits = (-MAX_ANG_VEL, MAX_ANG_VEL)
+
         self.pid_line = PID(1.5, 0.0, 0.0, setpoint=0)
+        self.pid_side = PID(1.5, 0.0, 0.0, setpoint=0)
 
         def pi_clip(angle):
             if angle > 0:
@@ -155,7 +161,7 @@ class MinimalSubscriber(Node):
 
         if self.state is IDLE:
             self.state = STARTED
-            self.vel_msg.linear.x = 0.0
+            self.vel_msg.linear.x = 0.0 # 0.06 for turn on one wheel
             self.ang_vel = 0.0
             self.start_heading = self.heading
             self.start_odom = self.odom_heading
@@ -174,14 +180,16 @@ class MinimalSubscriber(Node):
                 self.pid_angle.setpoint = self.start_heading.convert('rad')
 
         elif self.state is HALF:
-            target_ang_vel = constrain(self.pid_angle(self.heading.convert('rad')), -MAX_ANG_VEL, MAX_ANG_VEL)
+            target_ang_vel = self.pid_angle(self.heading.convert('rad'))
             if abs(target_ang_vel) > abs(self.ang_vel):
                 self.ang_vel += sign(target_ang_vel) * min(MAX_ACCEL*dt, abs(target_ang_vel-self.ang_vel))
             else:
                 self.ang_vel = target_ang_vel
+            print('heading', self.heading.convert('deg'), '->', self.start_heading.convert('deg'), target_ang_vel, self.pid_angle.components)
 
-            if abs(self.heading - self.start_heading) < Angle('0.1', 'deg').convert('rad'):
+            if abs(self.heading - self.start_heading) < Angle('0.5', 'deg').convert('rad'):
                 self.ang_vel = 0.0
+                self.vel_msg.linear.x = 0.0
                 self.state = DONE
 
         elif self.state is DONE:
@@ -240,7 +248,7 @@ class MinimalSubscriber(Node):
 
         heading = odom_heading_abs
         # heading = self.heading
-        target_ang_vel = constrain(self.pid_angle(heading.convert('rad')), -0.5, 0.5)
+        target_ang_vel = self.pid_angle(heading.convert('rad'))
         if abs(target_ang_vel) > abs(self.ang_vel):
             self.ang_vel += sign(target_ang_vel) * min(MAX_ACCEL*dt, abs(target_ang_vel-self.ang_vel))
         else:
@@ -280,26 +288,29 @@ class MinimalSubscriber(Node):
         else:
             if time.monotonic() - self.start_time > 13:
                 self.start_time = time.monotonic()
-                self.target_angle += -90
+                self.target_angle += 90    # positive is CCW (trigonometric)
                 self.pid_angle.setpoint = self.target_angle.convert('rad')
             elif time.monotonic() - self.start_time > 12:
                 self.vel_msg.linear.x = constrain(self.vel_msg.linear.x - 0.02, 0.0, 0.3)
-                print('--', self.vel_msg.linear.x)
-            elif time.monotonic() - self.start_time > 7:
+                # print('--', self.vel_msg.linear.x)
+            elif time.monotonic() - self.start_time > 6:
                 self.vel_msg.linear.x = constrain(self.vel_msg.linear.x + 0.02, 0.0, 0.3)
-                print('++', self.vel_msg.linear.x)
+                # print('++', self.vel_msg.linear.x)
                 pass
+            else:   # 0-7 seconds
+                pass    # only the rest of code below is executed
 
         heading = odom_heading_abs
         # heading = self.heading
-        target_ang_vel = constrain(self.pid_angle(heading.convert('rad')), -0.5, 0.5)
-        if abs(target_ang_vel) > abs(self.ang_vel):
-            self.ang_vel += sign(target_ang_vel) * min(MAX_ACCEL*dt, abs(target_ang_vel-self.ang_vel))
-        else:
-            self.ang_vel = target_ang_vel
+        target_ang_vel = self.pid_angle(heading.convert('rad'))
+        # smooth acceleration
+        # if abs(target_ang_vel) > abs(self.ang_vel):
+        #     self.ang_vel += sign(target_ang_vel) * min(MAX_ACCEL*dt, abs(target_ang_vel-self.ang_vel))
+        # else:
+        self.ang_vel = target_ang_vel
 
         # print(f"{self.heading.convert('deg')} - {odom_heading_abs.convert('deg')} = {drift.convert('deg'):.2f} " 
-        #       f"| {float(heading.convert('deg')):.2f} ({heading.mod}) -> \t{float(self.target_angle):.2f}")
+        print(f"| {float(heading.convert('deg')):.2f} ({heading.mod}) -> \t{float(self.target_angle):.2f} | {target_ang_vel:.2f}")
         # self.vel_msg.angular.z = constrain(kP * float(self.target_angle - heading), -0.3, 0.3)
         self.vel_msg.angular.z = self.ang_vel
         self.vel_pub.publish(self.vel_msg)
