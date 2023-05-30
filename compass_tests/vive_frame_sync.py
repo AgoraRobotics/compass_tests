@@ -1,7 +1,7 @@
 import math
-import sys
 
 from geometry_msgs.msg import TransformStamped
+from nav_msgs.msg import Odometry
 
 import numpy as np
 
@@ -15,9 +15,9 @@ from tf2_ros.transform_listener import TransformListener
 from tf_transformations import quaternion_from_euler
 
 VIVE_WORLD = 'libsurvive_world'
-MAP_FRAME = 'map'
-TRACKER = 'LHR-28AFC235'
-CALIB_DIST = 0.5    # move at least 1m to align frames
+MAP_FRAME = 'odom'  # should be 'map'
+TRACKER = 'LHR-97093BF8'
+CALIB_DIST = 1      # move at least 1m to align frames
 
 
 def vect3_dist(p1, p2):
@@ -45,7 +45,7 @@ class StaticFramePublisher(Node):
     """
 
     def __init__(self):
-        super().__init__('static_turtle_tf2_broadcaster')
+        super().__init__('vive_frame_sync_broadcaster')
 
         # Declare and acquire `target_frame` parameter
         self.tracker = self.declare_parameter(
@@ -65,17 +65,16 @@ class StaticFramePublisher(Node):
         # Publish static transforms once at startup
         self.make_transforms([0, 0, 0, 0, 0, 0])
 
+        self.publisher_odom = self.create_publisher(Odometry, 'odom_vive', 10)
+
     def on_timer(self):
         from_frame_rel = VIVE_WORLD
         to_frame_odom = 'base_link'
         to_frame_vive = self.tracker
 
-        if self.sync_finished:
-            return
-
         try:
             pos_odom = self.tf_buffer.lookup_transform(
-                'map',
+                MAP_FRAME,
                 to_frame_odom,
                 rclpy.time.Time()).transform.translation
             pos_vive = self.tf_buffer.lookup_transform(
@@ -99,13 +98,19 @@ class StaticFramePublisher(Node):
             angle_vive = vect3_angle(self.pos0_vive, pos_vive)
             print('=>', d, angle_odom, '|', angle_vive)
             if d > CALIB_DIST and not self.sync_finished:
-                angle_diff = angle_odom - angle_vive
-                print('angle_diff', angle_diff)
-                rot_odom = rotate([(pos_odom.x, pos_odom.y)], angle=angle_diff)
-                tr_x, tr_y = rot_odom[0] - pos_vive.x, rot_odom[1] - pos_vive.y
-                print(tr_x, tr_y)
-                self.make_transforms((-tr_x, -tr_y, 0, 0, 0, angle_diff))
+                self.angle_diff = angle_odom - angle_vive
+                print('angle_diff', self.angle_diff)
+                rot_odom = rotate([(pos_odom.x, pos_odom.y)], angle=self.angle_diff)
+                self.tr_x, self.tr_y = rot_odom[0] - pos_vive.x, rot_odom[1] - pos_vive.y
                 self.sync_finished = True
+                print('pub', self.tr_x, self.tr_y, self.angle_diff)
+
+            if self.sync_finished:
+                self.make_transforms((-self.tr_x, -self.tr_y, 0, 0, 0, self.angle_diff))
+
+                rot_vive = rotate([(pos_vive.x + self.tr_x, pos_vive.y + self.tr_y)], angle=-self.angle_diff)
+                self.publish_odometry(rot_vive[0], rot_vive[1], 0.0, 0.0, 0.0)
+
 
     def make_transforms(self, transformation):
         t = TransformStamped()
@@ -126,6 +131,20 @@ class StaticFramePublisher(Node):
 
         self.tf_static_broadcaster.sendTransform(t)
 
+    def publish_odometry(self, x, y, theta, speed, ang_speed):
+        """ Publish odometry message. """
+        msg = Odometry()
+        msg.header.frame_id = 'odom'
+        msg.child_frame_id = 'base_link_VIVE'
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.pose.pose.position.x = x
+        msg.pose.pose.position.y = y
+        msg.pose.pose.position.z = 0.0
+        msg.pose.pose.orientation.w = math.cos(theta / 2)
+        msg.pose.pose.orientation.z = math.sin(theta / 2)
+        msg.twist.twist.linear.x = speed
+        msg.twist.twist.angular.z = ang_speed
+        self.publisher_odom.publish(msg)
 
 def main():
     logger = rclpy.logging.get_logger('logger')
