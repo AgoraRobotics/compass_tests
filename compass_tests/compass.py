@@ -318,16 +318,43 @@ class MinimalSubscriber(Node):
 ##########  LINE, drive straigth
 
     def timer_callback_line(self):
-        if self.start_position is None:
+        if not hasattr(self, 'position'):
+            print('no odom position...')
+            return
+
+        if self.heading is None:
+            print('no compass heading...')
+            return
+
+        if self.start_time is None:
             self.start_time = time.monotonic()
-            self.start_position = self.position
-            self.vel_msg.linear.x = 0.1
+            self.start_x = self.position.x
+            self.start_y = self.position.y
+            self.start_heading = self.heading
+            self.pid_angle.setpoint = self.start_heading.convert('rad')
+            self.pid_line.setpoint = 0.0
+            self.vel_msg.linear.x = 0.2
             self.vel_pub.publish(self.vel_msg)
         else:
-            if time.monotonic() - self.start_time > 10:
-                # self.pid_angle.setpoint = self.target_angle.convert('rad')
-                self.vel_msg.linear.x = 0.0
+            if time.monotonic() - self.start_time < 10.2:
+                self.vel_msg.linear.x = 0.2
+                side_pid_out = -constrain(self.pid_side(self.position.y - self.start_y), -0.5, 0.5)
+                self.pid_angle.setpoint = self.start_heading.convert('rad') + side_pid_out
+                self.vel_msg.angular.z = self.pid_angle(self.heading.convert('rad'))
+                print(f"{self.position.y:.3f} \t{side_pid_out:.3f}\t{self.vel_msg.angular.z:.3f}", end='')
+                print("\t", f"{self.heading.convert('rad'):.02f}", " -> ", f"{self.start_heading.convert('rad'):.02f}")
                 self.vel_pub.publish(self.vel_msg)
+            else:
+                self.vel_msg.linear.x = 0.0
+                self.vel_msg.angular.z = 0.0
+                self.vel_pub.publish(self.vel_msg)
+                exit()
+
+    def robot_move(self, linear, angular):
+        self.vel_msg.linear.x = linear
+        self.vel_msg.angular.z = angular
+        self.vel_pub.publish(self.vel_msg)
+
 
 ########### logging
 
@@ -347,7 +374,15 @@ def main(args=None):
 
     compass_test = MinimalSubscriber(callback)
 
-    rclpy.spin(compass_test)
+    try:
+        rclpy.spin(compass_test)
+    except KeyboardInterrupt:
+        compass_test.robot_move(0.0, 0.0)
+        rclpy.spin_once(compass_test)
+        rclpy.spin_once(compass_test)
+        rclpy.spin_once(compass_test)
+        print('*** KeyboardInterrupt')
+
 
     # Destroy the node explicitly
     # (optional - otherwise it will be done automatically
@@ -360,6 +395,10 @@ def main_rotate():
 
 def main_square():
     main({'callback': 'timer_callback_square'})
+
+def main_line():
+    main({'callback': 'timer_callback_line'})
+
 
 if __name__ == '__main__':
     main()

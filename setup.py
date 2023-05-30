@@ -22,6 +22,7 @@ setup(
         'console_scripts': [
             'rotate = compass_tests.compass:main_rotate',
             'square = compass_tests.compass:main_square',
+            'line = compass_tests.compass:main_line',
             'vive_frame = compass_tests.vive_frame_sync:main'
         ],
     },
