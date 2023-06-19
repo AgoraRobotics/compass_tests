@@ -77,11 +77,14 @@ class StaticFramePublisher(Node):
                 MAP_FRAME,
                 to_frame_odom,
                 rclpy.time.Time()).transform.translation
-            pos_vive = self.tf_buffer.lookup_transform(
+            tf_vive = self.tf_buffer.lookup_transform(
                 from_frame_rel,
                 to_frame_vive,
-                rclpy.time.Time()).transform.translation
-            print(pos_odom, '\n\\', pos_vive, '\n')
+                rclpy.time.Time()).transform
+            pos_vive = tf_vive.translation
+
+            if not self.sync_finished:
+                print(pos_odom, '\n\\', pos_vive, '\n')
 
             if self.pos0_odom is None:
                 self.pos0_odom = pos_odom
@@ -96,8 +99,8 @@ class StaticFramePublisher(Node):
             d = vect3_dist(self.pos0_odom, pos_odom)
             angle_odom = vect3_angle(self.pos0_odom, pos_odom)
             angle_vive = vect3_angle(self.pos0_vive, pos_vive)
-            print('=>', d, angle_odom, '|', angle_vive)
             if d > CALIB_DIST and not self.sync_finished:
+                print('=>', d, angle_odom, '|', angle_vive)
                 self.angle_diff = angle_odom - angle_vive
                 print('angle_diff', self.angle_diff)
                 rot_odom = rotate([(pos_odom.x, pos_odom.y)], angle=self.angle_diff)
@@ -109,6 +112,7 @@ class StaticFramePublisher(Node):
                 self.make_transforms((-self.tr_x, -self.tr_y, 0, 0, 0, self.angle_diff))
 
                 rot_vive = rotate([(pos_vive.x + self.tr_x, pos_vive.y + self.tr_y)], angle=-self.angle_diff)
+                # print(tf_vive.rotation)
                 self.publish_odometry(rot_vive[0], rot_vive[1], 0.0, 0.0, 0.0)
 
 
