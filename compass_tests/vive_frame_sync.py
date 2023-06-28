@@ -15,7 +15,7 @@ from tf2_ros.transform_listener import TransformListener
 from tf_transformations import quaternion_from_euler
 
 VIVE_WORLD = 'libsurvive_world'
-MAP_FRAME = 'odom'  # should be 'map'
+MAP_FRAME = 'map'
 TRACKER = 'LHR-97093BF8'
 CALIB_DIST = 1      # move at least 1m to align frames
 
@@ -101,17 +101,18 @@ class StaticFramePublisher(Node):
             angle_vive = vect3_angle(self.pos0_vive, pos_vive)
             if d > CALIB_DIST and not self.sync_finished:
                 print('=>', d, angle_odom, '|', angle_vive)
-                self.angle_diff = angle_odom - angle_vive
+                self.angle_diff = angle_vive - angle_odom
                 print('angle_diff', self.angle_diff)
-                rot_odom = rotate([(pos_odom.x, pos_odom.y)], angle=self.angle_diff)
-                self.tr_x, self.tr_y = rot_odom[0] - pos_vive.x, rot_odom[1] - pos_vive.y
+                rot_vive = rotate([(pos_vive.x, pos_vive.y)], angle=self.angle_diff)
+                self.tr_x, self.tr_y = rot_vive[0] - pos_odom.x, rot_vive[1] - pos_odom.y
                 self.sync_finished = True
                 print('pub', self.tr_x, self.tr_y, self.angle_diff)
 
             if self.sync_finished:
                 self.make_transforms((-self.tr_x, -self.tr_y, 0, 0, 0, self.angle_diff))
 
-                rot_vive = rotate([(pos_vive.x + self.tr_x, pos_vive.y + self.tr_y)], angle=-self.angle_diff)
+                rot_vive = rotate([(pos_vive.x, pos_vive.y)], angle=self.angle_diff)
+                rot_vive = [rot_vive[0] - self.tr_x, rot_vive[1] - self.tr_y]
                 # print(tf_vive.rotation)
                 self.publish_odometry(rot_vive[0], rot_vive[1], 0.0, 0.0, 0.0)
 
@@ -120,8 +121,8 @@ class StaticFramePublisher(Node):
         t = TransformStamped()
 
         t.header.stamp = self.get_clock().now().to_msg()
-        t.header.frame_id = VIVE_WORLD
-        t.child_frame_id = MAP_FRAME
+        t.header.frame_id = MAP_FRAME
+        t.child_frame_id = VIVE_WORLD
 
         t.transform.translation.x = float(transformation[0])
         t.transform.translation.y = float(transformation[1])
